@@ -1,6 +1,7 @@
 use crate::constants;
 use glam::{IVec2, UVec2, Vec2};
 use rand::Rng;
+use rapier2d::dynamics::RevoluteJoint;
 use rapier2d::{
     na::{OPoint, Vector2},
     prelude::*,
@@ -30,6 +31,8 @@ pub struct Physics {
 
     pub rigid_body_set: RigidBodySet,
     pub collider_set: ColliderSet,
+
+    pub car_handle: RigidBodyHandle,
 }
 
 impl State {
@@ -121,6 +124,156 @@ impl State {
             collider_set.insert_with_parent(box_collider, box_body_handle, &mut rigid_body_set);
         }
 
+        // make a chain bridge from 25% of width to 75% of width, at 50% of height
+        // Define the starting and ending points of the bridge
+        let bridge_start = vector![
+            0.25 * constants::DIMS.x as f32,
+            0.5 * constants::DIMS.y as f32
+        ];
+        let bridge_end = vector![
+            0.75 * constants::DIMS.x as f32,
+            0.5 * constants::DIMS.y as f32
+        ];
+
+        let world_anchor = vector![0.0, 0.0];
+
+        let bridge_start_collider = ColliderBuilder::ball(10.0).restitution(0.9).build();
+        let bridge_start_rigid_body = RigidBodyBuilder::fixed()
+            .translation(vector![bridge_start.x, bridge_start.y])
+            .build();
+        let bridge_start_body_handle = rigid_body_set.insert(bridge_start_rigid_body);
+        collider_set.insert_with_parent(
+            bridge_start_collider,
+            bridge_start_body_handle,
+            &mut rigid_body_set,
+        );
+
+        let bridge_end_collider = ColliderBuilder::ball(10.0).restitution(0.9).build();
+        let bridge_end_rigid_body = RigidBodyBuilder::fixed()
+            .translation(vector![bridge_end.x, bridge_end.y])
+            .build();
+        let bridge_end_body_handle = rigid_body_set.insert(bridge_end_rigid_body);
+        collider_set.insert_with_parent(
+            bridge_end_collider,
+            bridge_end_body_handle,
+            &mut rigid_body_set,
+        );
+
+        // Decide on the number of links
+        let num_links = 10;
+        let link_length = (bridge_end.x - bridge_start.x) / num_links as f32;
+
+        // Iterate over the number of links to create each one
+        // Iterate over the number of links to create each one
+        let mut previous_handle: Option<RigidBodyHandle> = None;
+        for i in 0..num_links {
+            // Calculate the position of the current link
+            let x = bridge_start.x + i as f32 * link_length;
+            let position = vector![x, bridge_start.y];
+
+            // Create the rigid body and collider for the current link
+            let link_collider = ColliderBuilder::cuboid(link_length * 0.5, 0.2)
+                .restitution(0.9)
+                .build();
+            let link_rigid_body = RigidBodyBuilder::dynamic().translation(position).build();
+            let link_body_handle = rigid_body_set.insert(link_rigid_body);
+            collider_set.insert_with_parent(link_collider, link_body_handle, &mut rigid_body_set);
+
+            // If this is the first or last link, create a joint to pin it in place
+            if i == 0 {
+                let joint = RevoluteJointBuilder::new()
+                    .local_anchor1(Point::from(vector![link_length * 0.5, 0.0]))
+                    .local_anchor2(Point::from(world_anchor))
+                    .build();
+                impulse_joint_set.insert(bridge_start_body_handle, link_body_handle, joint, true);
+            } else if i == num_links - 1 {
+                let joint = RevoluteJointBuilder::new()
+                    .local_anchor1(Point::from(vector![-link_length * 0.5, 0.0]))
+                    .local_anchor2(Point::from(world_anchor))
+                    .build();
+                impulse_joint_set.insert(bridge_end_body_handle, link_body_handle, joint, true);
+            }
+
+            // Create a joint between the previous link and the current one
+            if let Some(prev_handle) = previous_handle {
+                // let anchor_prev = vector![-link_length * 0.5, 0.0]; // Local anchor at the right end of the previous link
+                // let anchor_curr = vector![link_length * 0.5, 0.0]; // Local anchor at the left end of the current link
+                let anchor_prev: Point<f32> = Point::from(vector![-link_length * 0.5, 0.0]);
+                let anchor_curr: Point<f32> = Point::from(vector![link_length * 0.5, 0.0]);
+
+                let joint = RevoluteJointBuilder::new()
+                    .local_anchor1(anchor_prev)
+                    .local_anchor2(anchor_curr);
+
+                impulse_joint_set.insert(prev_handle, link_body_handle, joint, true);
+            }
+            previous_handle = Some(link_body_handle);
+        }
+
+        // make a car on the left side
+        //// car consists of 2 rolling wheels connected by a box.
+        let car_body_handle = {
+            let car_collider = ColliderBuilder::cuboid(10.0, 2.0).restitution(0.9).build();
+            let car_rigid_body = RigidBodyBuilder::dynamic()
+                .translation(vector![10.0, 10.0])
+                .build();
+            let car_body_handle = rigid_body_set.insert(car_rigid_body);
+            collider_set.insert_with_parent(car_collider, car_body_handle, &mut rigid_body_set);
+            car_body_handle
+        };
+
+        // Left wheel position
+        let left_wheel_position = vector![10.0 - 10.0 - 8.0, 10.0];
+
+        // Right wheel position
+        let right_wheel_position = vector![10.0 + 10.0 + 8.0, 10.0];
+
+        let left_wheel_body_handle = {
+            let left_wheel_collider = ColliderBuilder::ball(4.0).restitution(0.9).build();
+            let left_wheel_rigid_body = RigidBodyBuilder::dynamic()
+                .translation(left_wheel_position)
+                .build();
+            let left_wheel_body_handle = rigid_body_set.insert(left_wheel_rigid_body);
+            collider_set.insert_with_parent(
+                left_wheel_collider,
+                left_wheel_body_handle,
+                &mut rigid_body_set,
+            );
+            left_wheel_body_handle
+        };
+
+        let right_wheel_body_handle = {
+            let right_wheel_collider = ColliderBuilder::ball(4.0).restitution(0.9).build();
+            let right_wheel_rigid_body = RigidBodyBuilder::dynamic()
+                .translation(right_wheel_position)
+                .build();
+            let right_wheel_body_handle = rigid_body_set.insert(right_wheel_rigid_body);
+            collider_set.insert_with_parent(
+                right_wheel_collider,
+                right_wheel_body_handle,
+                &mut rigid_body_set,
+            );
+            right_wheel_body_handle
+        };
+
+        // left wheel joint
+        {
+            let joint = RevoluteJointBuilder::new()
+                .local_anchor1(Point::from(vector![0.0, 0.0]))
+                .local_anchor2(Point::from(vector![0.0, 0.0]))
+                .build();
+            impulse_joint_set.insert(car_body_handle, left_wheel_body_handle, joint, true);
+        }
+
+        // right wheel joint
+        {
+            let joint = RevoluteJointBuilder::new()
+                .local_anchor1(Point::from(vector![10.0, 0.0]))
+                .local_anchor2(Point::from(vector![0.0, 0.0]))
+                .build();
+            impulse_joint_set.insert(car_body_handle, right_wheel_body_handle, joint, true);
+        }
+
         Self {
             running: true,
             time_since_last_update: 0.0,
@@ -139,6 +292,8 @@ impl State {
 
                 rigid_body_set,
                 collider_set,
+
+                car_handle: car_body_handle,
             },
         }
     }
@@ -232,5 +387,21 @@ pub fn draw(state: &State, d: &mut RaylibTextureMode<RaylibDrawHandle>) {
                 println!("unhandled shape type: {:?}", shape_type);
             }
         }
+    }
+
+    // render all rigid bodies
+    // render all rigid bodies
+    for (handle, rigid_body) in state.physics.rigid_body_set.iter() {
+        // Get the position of the rigid body.
+        let position = rigid_body.position().translation.vector;
+
+        // Here, I'll render a small circle to represent the center of mass of the body.
+        let radius = 1.0; // Choose a small value for visualization purposes
+        d.draw_circle(
+            position.x as i32,
+            position.y as i32,
+            radius as f32,
+            Color::RED,
+        );
     }
 }
