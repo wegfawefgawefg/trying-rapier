@@ -62,12 +62,26 @@ fn main() {
 }
 
 pub fn center_window(rl: &mut raylib::RaylibHandle, window_dims: UVec2) {
-    let screen_dims = UVec2::new(rl.get_screen_width() as u32, rl.get_screen_height() as u32);
-    let screen_center = screen_dims / 2;
-    let window_center = window_dims / 2;
-    let mut offset = window_center - screen_center;
-    offset += UVec2::new(0, 500);
-    rl.set_window_position(offset.x as i32, offset.y as i32);
+    let mut target_monitor = 0;
+    let monitor_count = raylib::core::window::get_monitor_count();
+    let mut leftmost_x = i32::MAX;
+
+    for monitor in 0..monitor_count {
+        let position = raylib::core::window::get_monitor_position(monitor);
+        let monitor_x = position.x.round() as i32;
+        if monitor_x < leftmost_x {
+            leftmost_x = monitor_x;
+            target_monitor = monitor;
+        }
+    }
+
+    let monitor_position = raylib::core::window::get_monitor_position(target_monitor);
+    let monitor_width = raylib::core::window::get_monitor_width(target_monitor);
+    let monitor_height = raylib::core::window::get_monitor_height(target_monitor);
+    let x = monitor_position.x.round() as i32 + (monitor_width - window_dims.x as i32) / 2;
+    let y = monitor_position.y.round() as i32 + (monitor_height - window_dims.y as i32) / 2;
+
+    rl.set_window_position(x, y);
     rl.set_target_fps(144);
 }
 

@@ -6,7 +6,7 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-glam = "0.24.2"
-rand = "0.8.5"
-rapier2d = { version = "0.17.2", features = [ "parallel" ] }
-raylib = "3.7.0"
+glam = "0.32"
+rand = "0.10"
+rapier2d = { version = "0.32", features = [ "parallel" ] }
+raylib = "5.5"
